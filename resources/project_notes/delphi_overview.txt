@@ -1,0 +1,5 @@
+Project Delphi:
+Goal: Create an AI agent that can search and reason over personal data.
+Tech Stack: Python, Meilisearch, AgentSpec, OpenAI/TogetherAI.
+Status: In progress.
+Next steps: Implement search engine integration.

@@ -1,0 +1,9 @@
+Bank: Chase
+Account Type: Checking
+Account Number: ****1234
+Balance: $5,432.10
+
+Bank: Wells Fargo
+Account Type: Savings
+Account Number: ****5678
+Balance: $25,000.00

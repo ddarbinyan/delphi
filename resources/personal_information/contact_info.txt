@@ -1,0 +1,6 @@
+Name: John Doe
+Address: 123 Maple Street, Springfield, IL
+Phone: 555-0123
+Email: john.doe@example.com
+DOB: 1985-04-12
+Emergency Contact: Jane Doe (Wife) - 555-0124

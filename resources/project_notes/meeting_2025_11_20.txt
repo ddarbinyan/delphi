@@ -1,0 +1,9 @@
+Meeting Notes - 2025-11-20:
+Attendees: Adam, Anna.
+Topics:
+- Hackathon strategy.
+- Data generation.
+- Pipeline architecture.
+Decisions:
+- Use Meilisearch for fast retrieval.
+- Use AgentSpec for orchestration.

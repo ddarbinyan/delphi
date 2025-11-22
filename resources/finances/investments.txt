@@ -1,0 +1,8 @@
+Stock Portfolio:
+- AAPL: 50 shares
+- MSFT: 30 shares
+- GOOGL: 20 shares
+
+Crypto Wallet:
+- BTC: 0.5
+- ETH: 10.0
