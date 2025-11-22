@@ -1,46 +1,39 @@
+import argparse
 import os
 import hashlib
 from pathlib import Path
 import meilisearch
 import time
 
-# Configuration
-MEILISEARCH_URL = os.getenv("MEILISEARCH_URL", "http://localhost:7700")
-MEILISEARCH_KEY = os.getenv("MEILISEARCH_MASTER_KEY", "masterKey")
-INDEX_NAME = "personal_data"
-RESOURCES_DIR = Path(__file__).parent.parent / "resources"
-
-def get_client():
-    return meilisearch.Client(MEILISEARCH_URL, MEILISEARCH_KEY)
+def get_client(url, key):
+    return meilisearch.Client(url, key)
 
 def generate_id(file_path):
     """Generate a deterministic ID based on the file path."""
     return hashlib.md5(str(file_path).encode()).hexdigest()
 
-def index_documents():
-    client = get_client()
-    
+def index_documents(client, resources_dir, index_name):
     # Create or get index
-    index = client.index(INDEX_NAME)
+    index = client.index(index_name)
     
     # Update filterable attributes for faceting
     index.update_filterable_attributes(["category"])
     
     documents = []
     
-    if not RESOURCES_DIR.exists():
-        print(f"Resources directory not found: {RESOURCES_DIR}")
+    if not resources_dir.exists():
+        print(f"Resources directory not found: {resources_dir}")
         return
 
-    print(f"Scanning documents in {RESOURCES_DIR}...")
+    print(f"Scanning documents in {resources_dir}...")
     
-    for file_path in RESOURCES_DIR.rglob("*"):
+    for file_path in resources_dir.rglob("*"):
         if file_path.is_file() and file_path.suffix in ['.txt', '.md']:
             try:
                 content = file_path.read_text(encoding='utf-8')
                 
                 # Determine category from parent folder name relative to resources dir
-                relative_path = file_path.relative_to(RESOURCES_DIR)
+                relative_path = file_path.relative_to(resources_dir)
                 category = relative_path.parts[0] if len(relative_path.parts) > 1 else "uncategorized"
                 
                 doc = {
@@ -69,9 +62,8 @@ def index_documents():
     else:
         print("No documents found to index.")
 
-def search(query, category=None):
-    client = get_client()
-    index = client.index(INDEX_NAME)
+def search(client, query, index_name, category=None):
+    index = client.index(index_name)
     
     search_params = {
         "limit": 5,
@@ -93,22 +85,37 @@ def search(query, category=None):
         print(f"Content: {content_snippet}")
         print("-" * 40)
 
-if __name__ == "__main__":
+def main():
+    parser = argparse.ArgumentParser(description="Meilisearch Engine CLI")
+    parser.add_argument("--url", default=os.getenv("MEILISEARCH_URL", "http://localhost:7700"), help="Meilisearch URL")
+    parser.add_argument("--key", default=os.getenv("MEILISEARCH_MASTER_KEY", "masterKey"), help="Meilisearch Master Key")
+    parser.add_argument("--index-name", default="personal_data", help="Index name")
+    
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    
+    # Index command
+    index_parser = subparsers.add_parser("index", help="Index documents from a directory")
+    index_parser.add_argument("--resources-dir", required=True, help="Path to resources directory")
+    
+    # Search command
+    search_parser = subparsers.add_parser("search", help="Search for documents")
+    search_parser.add_argument("query", help="Search query")
+    search_parser.add_argument("--category", help="Filter by category")
+    
+    args = parser.parse_args()
+    
     try:
-        # Check connection
-        client = get_client()
+        client = get_client(args.url, args.key)
         client.health()
         
-        # Index documents
-        index_documents()
-        
-        # Example searches
-        search("bank account")
-        search("hackathon", category="project_notes")
-        search("passport")
-        
+        if args.command == "index":
+            index_documents(client, Path(args.resources_dir), args.index_name)
+        elif args.command == "search":
+            search(client, args.query, args.index_name, args.category)
+            
     except Exception as e:
         print(f"Error: {e}")
         print("\nMake sure Meilisearch is running!")
-        print("You can run it with Docker:")
-        print(f"docker run -it --rm -p 7700:7700 -e MEILI_MASTER_KEY={MEILISEARCH_KEY} -v $(pwd)/meili_data:/meili_data getmeili/meilisearch:v1.13")
+
+if __name__ == "__main__":
+    main()

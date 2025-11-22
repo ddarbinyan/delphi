@@ -1,5 +1,7 @@
 import warnings
 warnings.filterwarnings('ignore')
+import argparse
+import sys
 
 from pyagentspec.llms import OpenAiCompatibleConfig, LlmGenerationConfig
 
@@ -8,6 +10,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 together_ai_api_key = os.getenv('OPENAI_API_KEY')
+
+# Global configuration
+CONFIG = {
+    "resources_dir": None
+}
 
 llm_config = OpenAiCompatibleConfig(
     # name="openai/gpt-oss-120B",
@@ -35,20 +42,20 @@ import json
 from datetime import datetime
 
 # Define the tool that performs image analysis
-def analyze_image(image_path_str: str) -> str:
+def analyze_image(image_path: str) -> str:
     # Load image
-    image_path = Path(image_path_str)
-    if not image_path.exists():
+    image_path_obj = Path(image_path)
+    if not image_path_obj.exists():
         # Fallback if running from delphi directory
         if Path("delphi").exists():
-             image_path = Path("delphi") / image_path_str
+             image_path_obj = Path("delphi") / image_path
         elif Path("resources").exists():
-             image_path = Path("resources") / Path(image_path_str).name
+             image_path_obj = Path("resources") / Path(image_path).name
     
-    if not image_path.exists():
-        return json.dumps({"status": "error", "message": f"Image not found at {image_path_str}"})
+    if not image_path_obj.exists():
+        return json.dumps({"status": "error", "message": f"Image not found at {image_path}"})
 
-    image_bytes = image_path.read_bytes()
+    image_bytes = image_path_obj.read_bytes()
     image_content = ImageContent.from_bytes(image_bytes, format="png")
 
     # Create prompt with image
@@ -75,10 +82,12 @@ def analyze_image(image_path_str: str) -> str:
     # Determine output path
     # We want to store it in resources/extracted_text/<image_name>/
     # Try to find the resources directory relative to the image or the script
-    if "resources" in image_path.parts:
+    if CONFIG["resources_dir"]:
+        resources_dir = CONFIG["resources_dir"]
+    elif "resources" in image_path_obj.parts:
         # If image is in .../resources/..., go up until we find resources
-        resources_idx = image_path.parts.index("resources")
-        resources_dir = Path(*image_path.parts[:resources_idx+1])
+        resources_idx = image_path_obj.parts.index("resources")
+        resources_dir = Path(*image_path_obj.parts[:resources_idx+1])
     else:
         # Fallback to local resources dir
         resources_dir = Path("resources")
@@ -91,7 +100,7 @@ def analyze_image(image_path_str: str) -> str:
          resources_dir.mkdir(exist_ok=True)
 
     # Create organized structure: resources/extracted_text/<image_name>/
-    output_dir = resources_dir / "extracted_text" / image_path.stem
+    output_dir = resources_dir / "extracted_text" / image_path_obj.stem
     output_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -103,7 +112,7 @@ def analyze_image(image_path_str: str) -> str:
     return json.dumps({
         "status": "success", 
         "path": str(output_file),
-        "original_image": str(image_path)
+        "original_image": str(image_path_obj)
     })
 
 # Define the ServerTool spec
@@ -161,11 +170,24 @@ tool_registry = {
     "analyze_image": analyze_image
 }
 
-# Execute the flow
-print("Executing Flow...")
-executable_flow = AgentSpecLoader(tool_registry=tool_registry).load_component(flow)
-conversation = executable_flow.start_conversation({"image_path": "delphi/resources/sample-1.png"})
-status = conversation.execute()
+def main():
+    parser = argparse.ArgumentParser(description="AgentSpec Image Analysis")
+    parser.add_argument("image_path", help="Path to the image file")
+    parser.add_argument("--resources-dir", help="Path to resources directory")
+    
+    args = parser.parse_args()
+    
+    if args.resources_dir:
+        CONFIG["resources_dir"] = Path(args.resources_dir)
+        
+    # Execute the flow
+    print(f"Executing Flow on {args.image_path}...")
+    executable_flow = AgentSpecLoader(tool_registry=tool_registry).load_component(flow)
+    conversation = executable_flow.start_conversation({"image_path": args.image_path})
+    status = conversation.execute()
 
-print("Flow Result:")
-print(status.output_values["result"])
+    print("Flow Result:")
+    print(status.output_values["result"])
+
+if __name__ == "__main__":
+    main()
