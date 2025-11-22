@@ -1,5 +1,7 @@
 # delphi
 
+For all the apps, you need to export the api key as said below
+
 ## How to run the test from oracle
 1. Clone this repository
 2. create `.env` in the root directory
