@@ -84,4 +84,4 @@ client = OpenAI(
     api_key=os.environ.get("OPENAI_API_KEY"),
     base_url="https://api.together.xyz/v1"
 )
-extract_pdf_pages(pdf_file='./sample-local-pdf.pdf', client=client)
+#extract_pdf_pages(pdf_file='./sample-local-pdf.pdf', client=client)
