@@ -25,7 +25,11 @@ export function EmptyState({ currentFolderId = null }: EmptyStateProps) {
                     </p>
                 </div>
                 <div className="flex gap-3">
-                    <Button onClick={() => setShowCreateFolder(true)}>
+                    <Button onClick={() => document.getElementById('file-upload')?.click()}>
+                        <Upload className="w-4 h-4 mr-2" />
+                        Upload File
+                    </Button>
+                    <Button variant="outline" onClick={() => setShowCreateFolder(true)}>
                         <FolderPlus className="w-4 h-4 mr-2" />
                         Create Folder
                     </Button>

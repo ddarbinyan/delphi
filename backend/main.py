@@ -1,9 +1,10 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from typing import List, Optional
 import os
 import json
+import threading
 from dotenv import load_dotenv
 try:
     from .store import DocumentStore, VectorStore, FileStore
@@ -47,11 +48,97 @@ except Exception as e:
 # Mount static files for uploads
 app.mount("/uploads", StaticFiles(directory="backend/uploads"), name="uploads")
 
+def process_document_pipeline(
+    doc_id: int,
+    file_path: str,
+    filename: str,
+    ext: str,
+    doc_type: str,
+    parent_folder_id: Optional[int],
+    content: Optional[str],
+    needs_extraction: bool
+):
+    """Background thread to process document after initial upload."""
+    try:
+        summary = ""
+        keywords = []
+        
+        # Extract content using AI agent if needed
+        reminder_data = {}
+        if needs_extraction:
+            try:
+                print(f"[Background] Extracting text from image: {file_path}")
+                result = process_document(file_path, filename)
+                if result and result.get("text"):
+                    content = result["text"]
+                    summary = result.get("summary", "")
+                    keywords = result.get("keywords", [])
+                    reminder_data = result.get("reminder_data", {})
+                    print(f"[Background] Extracted {len(content)} characters from image")
+                    print(f"[Background] Summary: {summary}")
+                    print(f"[Background] Keywords: {', '.join(keywords)}")
+                    print(f"[Background] Reminder data: {reminder_data}")
+                    
+                    # Update document with extracted content
+                    keywords_json = json.dumps(keywords) if keywords else None
+                    doc_store.update_document_content(doc_id, content, summary, keywords_json)
+            except Exception as e:
+                print(f"[Background] AI Extraction error: {e}")
+        
+        # Create reminder for all actionable items
+        if reminder_data and reminder_data.get("requires_action"):
+            try:
+                due_date_str = reminder_data.get("due_date")
+                reminder_id = doc_store.add_reminder(
+                    doc_id=doc_id,
+                    title=reminder_data.get("action_title", f"Action required: {filename}"),
+                    description=reminder_data.get("action_description", ""),
+                    due_date=due_date_str if due_date_str else None,
+                    category=reminder_data.get("category", "other")
+                )
+                print(f"[Reminders] Created reminder {reminder_id} for document {doc_id}")
+            except Exception as e:
+                print(f"[Reminders] Error creating reminder for document {doc_id}: {e}")
+        
+        # Index in Meilisearch if content is available
+        if content:
+            try:
+                # Generate embedding for semantic search
+                embedding_text = f"{filename}: {content}"
+                embedding = generate_embedding(embedding_text)
+                
+                if embedding is not None:
+                    meili_client.index_document(
+                        doc_id=doc_id,
+                        filename=filename,
+                        content=content,
+                        doc_type=doc_type,
+                        folder_id=parent_folder_id,
+                        embedding=embedding,
+                        summary=summary,
+                        keywords=keywords
+                    )
+                    print(f"[Background] Indexed document {doc_id} in Meilisearch")
+                    
+                    # Mark as completed if we didn't need extraction (file with content)
+                    if not needs_extraction:
+                        cursor = doc_store.conn.cursor()
+                        cursor.execute("UPDATE documents SET processing_status = 'completed' WHERE id = ?", (doc_id,))
+                        doc_store.conn.commit()
+                else:
+                    print(f"[Background] Warning: Embedding generation failed for document {doc_id}")
+            except Exception as e:
+                print(f"[Background] Meilisearch indexing error: {e}")
+        
+        print(f"[Background] Document {doc_id} processing completed")
+    except Exception as e:
+        print(f"[Background] Error processing document {doc_id}: {e}")
+
 @app.post("/api/v1/ingest")
 async def upload_document(
     file: UploadFile = File(...), 
     folder_id: Optional[str] = Form(None),
-    content: Optional[str] = Form(None)  # NEW: Extracted text from multimodal LLM agent
+    content: Optional[str] = Form(None)
 ):
     try:
         # Convert folder_id to int if provided
@@ -61,38 +148,17 @@ async def upload_document(
         if content:
             print(f"Upload - Received content: {len(content)} characters")
         
-        # 1. Save file to disk
+        # 1. Save file to disk immediately
         file_path = file_store.save_file(file)
         
-        # 2. Determine type (simple logic for now)
+        # 2. Determine type
         ext = os.path.splitext(file.filename)[1].lower()
         doc_type = "image" if ext in [".jpg", ".png", ".jpeg"] else "document"
         if "invoice" in file.filename.lower(): doc_type = "invoice"
         elif "receipt" in file.filename.lower(): doc_type = "receipt"
         
-        # 3. Extract content using AI agent if it's an image and no content provided
-        summary = ""
-        keywords = []
-        
-        if not content and ext in [".jpg", ".png", ".jpeg", ".webp"]:
-            try:
-                print(f"Extracting text from image: {file_path}")
-                result = process_document(file_path)
-                if result and result.get("text"):
-                    content = result["text"]
-                    summary = result.get("summary", "")
-                    keywords = result.get("keywords", [])
-                    print(f"Extracted {len(content)} characters from image")
-                    print(f"Summary: {summary}")
-                    print(f"Keywords: {', '.join(keywords)}")
-            except Exception as e:
-                print(f"AI Extraction error: {e}")
-
-        # 4. Save metadata + content to SQLite
+        # 3. Create document record immediately (without content for images)
         size = f"{file.size / 1024:.1f} KB" if file.size else "0 KB"
-        
-        # Convert keywords list to JSON string for storage
-        keywords_json = json.dumps(keywords) if keywords else None
         
         doc_id = doc_store.add_document(
             filename=file.filename,
@@ -100,39 +166,34 @@ async def upload_document(
             type=doc_type,
             size=size,
             parent_folder_id=parent_folder_id,
-            content=content or "",
-            summary=summary or None,
-            keywords=keywords_json
+            content=content or "",  # Empty for images, will be filled in background
+            summary=None,
+            keywords=None
         )
         
         print(f"Document created with ID: {doc_id}, parent_folder_id: {parent_folder_id}")
         
-        # 5. Index in Meilisearch if content provided
-        if content:
-            try:
-                # Generate embedding for semantic search
-                embedding_text = f"{file.filename}: {content}"
-                embedding = generate_embedding(embedding_text)
-                
-                # Only index if we have an embedding (when embeddings are enabled)
-                # or if embeddings are disabled (keyword-only mode)
-                if embedding is not None:
-                    meili_client.index_document(
-                        doc_id=doc_id,
-                        filename=file.filename,
-                        content=content,
-                        doc_type=doc_type,
-                        folder_id=parent_folder_id,
-                        embedding=embedding,
-                        summary=summary,
-                        keywords=keywords
-                    )
-                else:
-                    print(f"Warning: Embedding generation failed for document {doc_id}, skipping Meilisearch indexing")
-            except Exception as e:
-                print(f"Meilisearch indexing error: {e}")
+        # 4. Determine if we need AI extraction or just indexing
+        needs_extraction = not content and ext in [".jpg", ".png", ".jpeg", ".webp"]
         
-        return {"id": doc_id, "status": "success", "filename": file.filename}
+        # 5. Start background thread for processing (extraction, embedding, indexing)
+        # Use daemon thread so it doesn't block server shutdown
+        thread = threading.Thread(
+            target=process_document_pipeline,
+            args=(doc_id, file_path, file.filename, ext, doc_type, parent_folder_id, content, needs_extraction),
+            daemon=True
+        )
+        thread.start()
+        
+        print(f"[Upload] Returning immediately, background processing started for doc {doc_id}")
+        
+        # 5. Return immediately - don't wait for background processing
+        return {
+            "id": doc_id, 
+            "status": "success", 
+            "filename": file.filename,
+            "processing": "background"
+        }
     except Exception as e:
         print(f"Upload error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -405,6 +466,38 @@ async def move_document(doc_id: int, request: MoveDocumentRequest):
             raise HTTPException(status_code=404, detail="Document not found")
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/reminders")
+async def get_reminders():
+    """Get all reminders."""
+    try:
+        reminders = doc_store.get_reminders()
+        return [
+            {
+                "id": reminder["id"],
+                "documentId": reminder["document_id"],
+                "title": reminder["title"],
+                "description": reminder["description"],
+                "dueDate": reminder["due_date"],
+                "category": reminder["category"],
+                "status": reminder["status"],
+                "createdAt": reminder["created_at"],
+                "filename": reminder.get("filename"),
+                "documentType": reminder.get("type")
+            }
+            for reminder in reminders
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.patch("/api/v1/reminders/{reminder_id}/complete")
+async def complete_reminder(reminder_id: int):
+    """Mark a reminder as completed."""
+    try:
+        doc_store.complete_reminder(reminder_id)
+        return {"success": True, "message": "Reminder marked as completed"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

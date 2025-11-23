@@ -23,8 +23,8 @@ load_dotenv(env_path)
 
 # LLM Configuration
 llm_config = OpenAiCompatibleConfig(
-    name="mistralai/Mistral-Small-24B-Instruct-2501",
-    model_id="mistralai/Mistral-Small-24B-Instruct-2501",
+    name="openai/gpt-oss-120b",
+    model_id="openai/gpt-oss-120b",
     url="https://api.together.xyz/v1/chat/completions/",
     default_generation_parameters=LlmGenerationConfig(
         temperature=0.7,
@@ -675,18 +675,20 @@ Please answer the question based on the provided documents and calculation resul
         cite_pattern = r'\[CITE:(\d+)\]'
         cited_doc_ids = set(re.findall(cite_pattern, answer))
         
-        # Build citations list from cited document IDs
+        # Build citations list from cited document IDs (deduplicated)
         citations = []
         doc_id_map = {str(doc['id']): doc for doc in documents}
+        seen_doc_ids = set()
         
-        for doc_id_str in cited_doc_ids:
-            if doc_id_str in doc_id_map:
+        for doc_id_str in sorted(cited_doc_ids, key=int):
+            if doc_id_str in doc_id_map and doc_id_str not in seen_doc_ids:
                 doc = doc_id_map[doc_id_str]
                 citations.append({
                     "id": doc['id'],
                     "filename": doc['filename'],
                     "type": doc['type']
                 })
+                seen_doc_ids.add(doc_id_str)
         
         # Remove [CITE:X] tags from the answer for cleaner display
         # Replace them with superscript numbers for visual reference

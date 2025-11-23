@@ -7,7 +7,7 @@ export function useMoveDocument() {
 
     return useMutation({
         mutationFn: async ({ documentId, targetFolderId }: { documentId: string; targetFolderId: number | null }) => {
-            await axios.patch(`http://local0/api/v1/documents/${documentId}/move`, {
+            await axios.patch(`http://localhost:8000/api/v1/documents/${documentId}/move`, {
                 target_folder_id: targetFolderId
             });
         },

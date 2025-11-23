@@ -35,7 +35,7 @@ from pyagentspec.property import StringProperty
 import json
 from datetime import datetime
 
-from .prompt import SYSTEM_PROMPT_INIT, SUMMARIZATION_PROMPT
+from .prompt import SYSTEM_PROMPT_INIT, SUMMARIZATION_PROMPT, REMINDER_ANALYSIS_PROMPT
 
 # Define the tool that performs image analysis
 def analyze_image(image_path: str) -> str:
@@ -119,6 +119,63 @@ def summarize_and_extract_keywords(extracted_text: str) -> str:
         return json.dumps({"summary": "", "keywords": []})
 
 
+# Define the tool that analyzes for reminders
+def analyze_for_reminder(extracted_text: str, filename: str, analysis_result: str) -> str:
+    """
+    Analyzes the document to determine if it requires action and creates reminder data.
+    Returns JSON string with reminder information.
+    """
+    if not extracted_text or len(extracted_text.strip()) < 10:
+        # Return empty result for very short text
+        return json.dumps({"requires_action": False, "category": None, "due_date": None, "action_title": None, "action_description": None})
+    
+    # Parse the analysis result to get keywords
+    try:
+        analysis = json.loads(analysis_result)
+        keywords = analysis.get("keywords", [])
+        summary = analysis.get("summary", "")
+    except json.JSONDecodeError:
+        keywords = []
+        summary = ""
+    
+    # Create prompt for reminder analysis
+    document_info = f"""Document: {filename}
+Content: {extracted_text[:2000]}
+Summary: {summary}
+Keywords: {', '.join(keywords) if keywords else 'None'}"""
+    
+    prompt = Prompt(messages=[
+        Message(
+            role="system",
+            contents=[TextContent(content=REMINDER_ANALYSIS_PROMPT)]
+        ),
+        Message(
+            role="user",
+            contents=[TextContent(content=document_info)]
+        )
+    ])
+    
+    llm_component = AgentSpecLoader().load_component(llm_config)
+    completion = llm_component.generate(prompt)
+    result = completion.message.content.strip()
+    
+    # Try to parse the JSON response
+    try:
+        # Remove markdown code blocks if present
+        if result.startswith("```"):
+            result = result.split("```")[1]
+            if result.startswith("json"):
+                result = result[4:]
+        
+        parsed = json.loads(result)
+        return json.dumps(parsed)
+    except json.JSONDecodeError as e:
+        print(f"Failed to parse reminder analysis response: {e}")
+        print(f"Response was: {result}")
+        # Return a fallback structure
+        return json.dumps({"requires_action": False, "category": None, "due_date": None, "action_title": None, "action_description": None})
+
+
 analyze_image_tool = ServerTool(
     name="analyze_image",
     description="Extracts text from an image and saves it to a file.",
@@ -133,10 +190,24 @@ summarize_tool = ServerTool(
     outputs=[StringProperty(title="analysis_result", description="JSON with summary and keywords")]
 )
 
-# Define the Flow with summarization
+reminder_tool = ServerTool(
+    name="analyze_for_reminder",
+    description="Analyzes document for actionable items and deadlines.",
+    inputs=[
+        StringProperty(title="extracted_text", description="Extracted text from document"),
+        StringProperty(title="filename", description="Document filename"),
+        StringProperty(title="analysis_result", description="Analysis result with summary and keywords")
+    ],
+    outputs=[StringProperty(title="reminder_data", description="JSON with reminder information")]
+)
+
+# Define the Flow with summarization and reminder analysis
 start_node = StartNode(
     name="start",
-    inputs=[StringProperty(title="image_path", description="Path to the image")]
+    inputs=[
+        StringProperty(title="image_path", description="Path to the image"),
+        StringProperty(title="filename", description="Document filename")
+    ]
 )
 
 extraction_node = ToolNode(
@@ -149,22 +220,29 @@ summarization_node = ToolNode(
     tool=summarize_tool
 )
 
+reminder_node = ToolNode(
+    name="reminder_node",
+    tool=reminder_tool
+)
+
 end_node = EndNode(
     name="end",
     outputs=[
         StringProperty(title="text", description="Extracted text"),
-        StringProperty(title="analysis", description="Summary and keywords JSON")
+        StringProperty(title="analysis", description="Summary and keywords JSON"),
+        StringProperty(title="reminder", description="Reminder information JSON")
     ]
 )
 
 flow = Flow(
     name="Document Processing Flow",
     start_node=start_node,
-    nodes=[start_node, extraction_node, summarization_node, end_node],
+    nodes=[start_node, extraction_node, summarization_node, reminder_node, end_node],
     control_flow_connections=[
         ControlFlowEdge(name="start_to_extraction", from_node=start_node, to_node=extraction_node),
         ControlFlowEdge(name="extraction_to_summarization", from_node=extraction_node, to_node=summarization_node),
-        ControlFlowEdge(name="summarization_to_end", from_node=summarization_node, to_node=end_node),
+        ControlFlowEdge(name="summarization_to_reminder", from_node=summarization_node, to_node=reminder_node),
+        ControlFlowEdge(name="reminder_to_end", from_node=reminder_node, to_node=end_node),
     ],
     data_flow_connections=[
         DataFlowEdge(
@@ -182,6 +260,27 @@ flow = Flow(
             destination_input="extracted_text"
         ),
         DataFlowEdge(
+            name="text_to_reminder",
+            source_node=extraction_node,
+            source_output="extracted_text",
+            destination_node=reminder_node,
+            destination_input="extracted_text"
+        ),
+        DataFlowEdge(
+            name="filename_to_reminder",
+            source_node=start_node,
+            source_output="filename",
+            destination_node=reminder_node,
+            destination_input="filename"
+        ),
+        DataFlowEdge(
+            name="analysis_to_reminder",
+            source_node=summarization_node,
+            source_output="analysis_result",
+            destination_node=reminder_node,
+            destination_input="analysis_result"
+        ),
+        DataFlowEdge(
             name="text_to_end",
             source_node=extraction_node,
             source_output="extracted_text",
@@ -194,6 +293,13 @@ flow = Flow(
             source_output="analysis_result",
             destination_node=end_node,
             destination_input="analysis"
+        ),
+        DataFlowEdge(
+            name="reminder_to_end",
+            source_node=reminder_node,
+            source_output="reminder_data",
+            destination_node=end_node,
+            destination_input="reminder"
         )
     ]
 )
@@ -201,23 +307,32 @@ flow = Flow(
 # Register the tool implementations
 tool_registry = {
     "analyze_image": analyze_image,
-    "summarize_and_extract_keywords": summarize_and_extract_keywords
+    "summarize_and_extract_keywords": summarize_and_extract_keywords,
+    "analyze_for_reminder": analyze_for_reminder
 }
 
-def process_document(file_path: str) -> dict:
+def process_document(file_path: str, filename: str = None) -> dict:
     """
-    Process a document (image) using the AI agent flow to extract text, summarize, and extract keywords.
+    Process a document (image) using the AI agent flow to extract text, summarize, extract keywords, and analyze for reminders.
     
     Returns:
-        dict with keys: 'text', 'summary', 'keywords'
+        dict with keys: 'text', 'summary', 'keywords', 'reminder_data'
     """
     try:
+        # Extract filename from path if not provided
+        if filename is None:
+            filename = Path(file_path).name
+        
         executable_flow = AgentSpecLoader(tool_registry=tool_registry).load_component(flow)
-        conversation = executable_flow.start_conversation({"image_path": file_path})
+        conversation = executable_flow.start_conversation({
+            "image_path": file_path,
+            "filename": filename
+        })
         status = conversation.execute()
         
         extracted_text = status.output_values.get("text", "")
         analysis_json = status.output_values.get("analysis", "{}")
+        reminder_json = status.output_values.get("reminder", "{}")
         
         # Parse the analysis JSON
         try:
@@ -229,14 +344,23 @@ def process_document(file_path: str) -> dict:
             summary = ""
             keywords = []
         
+        # Parse the reminder JSON
+        try:
+            reminder_data = json.loads(reminder_json)
+        except json.JSONDecodeError:
+            print(f"Failed to parse reminder JSON: {reminder_json}")
+            reminder_data = {}
+        
         print(f"Extracted text: {extracted_text[:200]}...")
         print(f"Summary: {summary}")
         print(f"Keywords: {', '.join(keywords)}")
+        print(f"Reminder data: {reminder_data}")
         
         return {
             "text": extracted_text,
             "summary": summary,
-            "keywords": keywords
+            "keywords": keywords,
+            "reminder_data": reminder_data
         }
         
     except Exception as e:
@@ -244,5 +368,6 @@ def process_document(file_path: str) -> dict:
         return {
             "text": "",
             "summary": "",
-            "keywords": []
+            "keywords": [],
+            "reminder_data": {}
         }

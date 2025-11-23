@@ -51,17 +51,39 @@ class DocumentStore:
                 parent_folder_id INTEGER,
                 content TEXT,
                 keywords TEXT,
+                processing_status TEXT DEFAULT 'pending',
                 FOREIGN KEY (parent_folder_id) REFERENCES folders(id) ON DELETE CASCADE
             )
         """)
         
-        # Add keywords column if it doesn't exist (for existing databases)
+        # Create reminders table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS reminders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                document_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT,
+                due_date DATE NOT NULL,
+                category TEXT NOT NULL,
+                status TEXT DEFAULT 'pending',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+            )
+        """)
+        
+        # Add columns if they don't exist (for existing databases)
         try:
             cursor.execute("ALTER TABLE documents ADD COLUMN keywords TEXT")
             self.conn.commit()
         except sqlite3.OperationalError:
-            # Column already exists
             pass
+        
+        try:
+            cursor.execute("ALTER TABLE documents ADD COLUMN processing_status TEXT DEFAULT 'pending'")
+            self.conn.commit()
+        except sqlite3.OperationalError:
+            pass
+        
         self.conn.commit()
 
     def create_folder(self, name: str, parent_id: Optional[int] = None) -> int:
@@ -171,6 +193,48 @@ class DocumentStore:
         """Delete a document from SQLite by ID."""
         cursor = self.conn.cursor()
         cursor.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
+        self.conn.commit()
+        return cursor.rowcount > 0
+    
+    def update_document_content(self, doc_id: int, content: str, summary: Optional[str] = None, keywords: Optional[str] = None) -> bool:
+        """Update document content, summary, and keywords after background processing."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "UPDATE documents SET content = ?, summary = ?, keywords = ?, processing_status = 'completed' WHERE id = ?",
+            (content, summary, keywords, doc_id)
+        )
+        self.conn.commit()
+        return cursor.rowcount > 0
+    
+    def add_reminder(self, doc_id: int, title: str, description: str, due_date: str, category: str) -> int:
+        """Create a reminder for a document."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            INSERT INTO reminders (document_id, title, description, due_date, category, status)
+            VALUES (?, ?, ?, ?, ?, 'pending')
+        """, (doc_id, title, description, due_date, category))
+        self.conn.commit()
+        return cursor.lastrowid
+    
+    def get_reminders(self) -> List[Dict[str, Any]]:
+        """Get all reminders."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT r.*, d.filename, d.type 
+            FROM reminders r
+            LEFT JOIN documents d ON r.document_id = d.id
+            ORDER BY r.due_date ASC
+        """)
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+    
+    def complete_reminder(self, reminder_id: int) -> bool:
+        """Mark a reminder as completed."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "UPDATE reminders SET status = 'completed' WHERE id = ?",
+            (reminder_id,)
+        )
         self.conn.commit()
         return cursor.rowcount > 0
 

@@ -107,10 +107,10 @@ export function ChatWidget() {
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: 20, scale: 0.95 }}
                         transition={{ duration: 0.2 }}
-                        className="fixed bottom-24 right-6 w-[420px] max-h-[600px] h-[85vh] bg-card border rounded-2xl shadow-2xl flex flex-col z-50"
+                        className="fixed bottom-24 right-6 w-[420px] max-h-[600px] h-[85vh] bg-card border rounded-xl shadow-2xl flex flex-col z-50"
                     >
                         {/* Header */}
-                        <div className="p-4 border-b bg-primary text-primary-foreground flex items-center justify-between">
+                        <div className="p-4 border-b bg-primary text-primary-foreground flex items-center justify-between rounded-t-xl">
                             <div className="flex items-center gap-2">
                                 <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
                                     <Sparkles className="w-4 h-4" />
@@ -234,7 +234,7 @@ export function ChatWidget() {
                         </ScrollArea>
 
                         {/* Input */}
-                        <div className="p-4 border-t bg-background/95 backdrop-blur-sm">
+                        <div className="p-4 border-t bg-background/95 backdrop-blur-sm rounded-b-xl">
                             <form onSubmit={handleSubmit} className="flex gap-2">
                                 <Input
                                     placeholder="Ask about your documents..."

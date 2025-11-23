@@ -23,7 +23,18 @@ export function useUpload() {
             toast.dismiss(toastId);
             toast.success("File uploaded successfully");
 
+            // Invalidate immediately to show the file
             queryClient.invalidateQueries({ queryKey: ["documents"] });
+            
+            // Invalidate again after 3 seconds to refresh with processed content
+            setTimeout(() => {
+                queryClient.invalidateQueries({ queryKey: ["documents"] });
+            }, 3000);
+            
+            // And once more after 10 seconds for longer processing
+            setTimeout(() => {
+                queryClient.invalidateQueries({ queryKey: ["documents"] });
+            }, 10000);
         } catch (error) {
             toast.dismiss(toastId);
             toast.error("Failed to upload file");
