@@ -15,14 +15,14 @@ Delphi is a modern, intelligent file management system that combines the familia
 - **Frontend**: Next.js 14 (App Router), React, TypeScript, Tailwind CSS, Shadcn UI, TanStack Query.
 - **Backend**: FastAPI (Python), SQLite.
 - **Search Engine**: Meilisearch.
-- **Infrastructure**: Docker (for Meilisearch).
+- **Infrastructure**: Local Meilisearch instance.
 
 ## 📋 Prerequisites
 
 Before you begin, ensure you have the following installed:
 - **Node.js** (v18 or higher)
 - **Python** (v3.8 or higher)
-- **Docker** (for running the search engine)
+- **Meilisearch** (v1.13 or higher)
 
 ## ⚡️ Quick Start
 
@@ -35,14 +35,11 @@ cd delphi
 
 ### 2. Start Meilisearch (Search Engine)
 
-Run Meilisearch using Docker. This is required for search functionality.
+Run Meilisearch locally. This is required for search functionality.
 
 ```bash
-docker run -it --rm \
-  -p 7700:7700 \
-  -e MEILI_ENV='development' \
-  -v $(pwd)/meili_data:/meili_data \
-  getmeili/meilisearch:v1.13
+# Run Meilisearch (assuming it's installed via Homebrew or available in PATH)
+meilisearch --env development --db-path ./meili_data
 ```
 *Keep this terminal window open.*
 
@@ -66,7 +63,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 
 # Start the server
-uvicorn main:app --reload --port 8000
+cd .. && uvicorn backend.main:app --reload --port 8000
 ```
 The backend will start at `http://localhost:8000`.
 
@@ -74,7 +71,7 @@ The backend will start at `http://localhost:8000`.
 
 To enable **Semantic Search** capabilities (Hybrid Search), you need to provide an OpenAI API key.
 
-1. Create a `.env` file in the `backend/` directory.
+1. Create a `api.env` file in the `backend/` directory.
 2. Add your OpenAI API key:
 
 ```env

@@ -7,3 +7,4 @@ python-dotenv
 pyagentspec
 wayflowcore
 together
+chromadb
