@@ -1,6 +1,7 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from typing import List, Optional
 import os
 import json
@@ -48,6 +49,38 @@ except Exception as e:
 # Mount static files for uploads
 app.mount("/uploads", StaticFiles(directory="backend/uploads"), name="uploads")
 
+# Custom endpoint for serving files with proper headers for preview
+@app.get("/api/v1/files/{filename}")
+async def serve_file(filename: str):
+    """Serve files with proper headers for browser preview."""
+    file_path = os.path.join("backend/uploads", filename)
+    
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    # Determine content type
+    ext = os.path.splitext(filename)[1].lower()
+    content_types = {
+        '.pdf': 'application/pdf',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.png': 'image/png',
+        '.gif': 'image/gif',
+        '.webp': 'image/webp'
+    }
+    
+    media_type = content_types.get(ext, 'application/octet-stream')
+    
+    return FileResponse(
+        file_path,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": "inline",  # Display in browser instead of download
+            "Access-Control-Allow-Origin": "*",
+            "Cache-Control": "public, max-age=3600"
+        }
+    )
+
 def process_document_pipeline(
     doc_id: int,
     file_path: str,
@@ -67,14 +100,18 @@ def process_document_pipeline(
         reminder_data = {}
         if needs_extraction:
             try:
-                print(f"[Background] Extracting text from image: {file_path}")
-                result = process_document(file_path, filename)
+                # Determine if file is PDF or image
+                is_pdf = ext.lower() == '.pdf'
+                file_type = "PDF" if is_pdf else "image"
+                
+                print(f"[Background] Extracting text from {file_type}: {file_path}")
+                result = process_document(file_path, filename, is_pdf=is_pdf)
                 if result and result.get("text"):
                     content = result["text"]
                     summary = result.get("summary", "")
                     keywords = result.get("keywords", [])
                     reminder_data = result.get("reminder_data", {})
-                    print(f"[Background] Extracted {len(content)} characters from image")
+                    print(f"[Background] Extracted {len(content)} characters from {file_type}")
                     print(f"[Background] Summary: {summary}")
                     print(f"[Background] Keywords: {', '.join(keywords)}")
                     print(f"[Background] Reminder data: {reminder_data}")
@@ -174,7 +211,7 @@ async def upload_document(
         print(f"Document created with ID: {doc_id}, parent_folder_id: {parent_folder_id}")
         
         # 4. Determine if we need AI extraction or just indexing
-        needs_extraction = not content and ext in [".jpg", ".png", ".jpeg", ".webp"]
+        needs_extraction = not content and ext in [".jpg", ".png", ".jpeg", ".webp", ".pdf"]
         
         # 5. Start background thread for processing (extraction, embedding, indexing)
         # Use daemon thread so it doesn't block server shutdown
@@ -209,7 +246,7 @@ async def get_documents(folder_id: Optional[int] = None):
             "type": doc["type"],
             "sender": doc["sender"] or "Unknown",
             "summary": doc["summary"] or "No summary available",
-            "url": f"http://localhost:8000/uploads/{os.path.basename(doc['path'])}",
+            "url": f"http://localhost:8000/api/v1/files/{os.path.basename(doc['path'])}",
             "createdAt": doc["upload_date"],
             "size": doc["size"],
             "parentFolderId": doc.get("parent_folder_id")

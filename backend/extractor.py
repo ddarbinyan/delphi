@@ -13,9 +13,21 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 env_path = os.path.join(current_dir, "api.env")
 load_dotenv(env_path)
 
-llm_config = OpenAiCompatibleConfig(
+# Vision model for image extraction (Qwen)
+vision_llm_config = OpenAiCompatibleConfig(
     name="Qwen/Qwen2.5-VL-72B-Instruct",
     model_id="Qwen/Qwen2.5-VL-72B-Instruct",
+    url="https://api.together.xyz/v1/chat/completions/",
+    default_generation_parameters=LlmGenerationConfig(
+        temperature=0.7,
+        top_p=0.95,
+    )
+)
+
+# Text model for summarization and analysis (OpenAI OSS)
+text_llm_config = OpenAiCompatibleConfig(
+    name="openai/gpt-oss-120b",
+    model_id="openai/gpt-oss-120b",
     url="https://api.together.xyz/v1/chat/completions/",
     default_generation_parameters=LlmGenerationConfig(
         temperature=0.7,
@@ -36,6 +48,40 @@ import json
 from datetime import datetime
 
 from .prompt import SYSTEM_PROMPT_INIT, SUMMARIZATION_PROMPT, REMINDER_ANALYSIS_PROMPT
+import fitz  # PyMuPDF
+
+# Define the tool that extracts text from PDF
+def extract_pdf_text(pdf_path: str) -> str:
+    """
+    Extract text from a PDF file.
+    
+    Args:
+        pdf_path: Path to the PDF file
+        
+    Returns:
+        Extracted text as a string
+    """
+    try:
+        pdf_path_obj = Path(pdf_path)
+        doc = fitz.open(pdf_path_obj)
+        
+        text = ""
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            text += page.get_text()
+        
+        doc.close()
+        
+        if not text or len(text.strip()) < 10:
+            print("No text found in PDF or text too short.")
+            return ""
+        
+        print(f"Extracted {len(text)} characters from PDF")
+        return text.strip()
+        
+    except Exception as e:
+        print(f"Error extracting PDF text: {e}")
+        return ""
 
 # Define the tool that performs image analysis
 def analyze_image(image_path: str) -> str:
@@ -65,7 +111,7 @@ def analyze_image(image_path: str) -> str:
     ])
 
 
-    llm_component = AgentSpecLoader().load_component(llm_config)
+    llm_component = AgentSpecLoader().load_component(vision_llm_config)
     completion = llm_component.generate(prompt)
     extracted_text = completion.message.content.strip()
 
@@ -98,7 +144,7 @@ def summarize_and_extract_keywords(extracted_text: str) -> str:
         )
     ])
     
-    llm_component = AgentSpecLoader().load_component(llm_config)
+    llm_component = AgentSpecLoader().load_component(text_llm_config)
     completion = llm_component.generate(prompt)
     result = completion.message.content.strip()
     
@@ -155,7 +201,7 @@ Keywords: {', '.join(keywords) if keywords else 'None'}"""
         )
     ])
     
-    llm_component = AgentSpecLoader().load_component(llm_config)
+    llm_component = AgentSpecLoader().load_component(text_llm_config)
     completion = llm_component.generate(prompt)
     result = completion.message.content.strip()
     
@@ -201,7 +247,14 @@ reminder_tool = ServerTool(
     outputs=[StringProperty(title="reminder_data", description="JSON with reminder information")]
 )
 
-# Define the Flow with summarization and reminder analysis
+pdf_extraction_tool = ServerTool(
+    name="extract_pdf_text",
+    description="Extracts text from a PDF file.",
+    inputs=[StringProperty(title="pdf_path", description="Path to the PDF file")],
+    outputs=[StringProperty(title="extracted_text", description="Extracted text from the PDF")]
+)
+
+# Define the Flow with summarization and reminder analysis (for images)
 start_node = StartNode(
     name="start",
     inputs=[
@@ -304,16 +357,125 @@ flow = Flow(
     ]
 )
 
+# Define PDF processing flow (text extraction + summarization + reminder)
+pdf_start_node = StartNode(
+    name="pdf_start",
+    inputs=[
+        StringProperty(title="pdf_path", description="Path to the PDF file"),
+        StringProperty(title="filename", description="Document filename")
+    ]
+)
+
+pdf_extraction_node = ToolNode(
+    name="pdf_extraction_node",
+    tool=pdf_extraction_tool
+)
+
+pdf_summarization_node = ToolNode(
+    name="pdf_summarization_node",
+    tool=summarize_tool
+)
+
+pdf_reminder_node = ToolNode(
+    name="pdf_reminder_node",
+    tool=reminder_tool
+)
+
+pdf_end_node = EndNode(
+    name="pdf_end",
+    outputs=[
+        StringProperty(title="text", description="Extracted text"),
+        StringProperty(title="analysis", description="Summary and keywords JSON"),
+        StringProperty(title="reminder", description="Reminder information JSON")
+    ]
+)
+
+pdf_flow = Flow(
+    name="PDF Processing Flow",
+    start_node=pdf_start_node,
+    nodes=[pdf_start_node, pdf_extraction_node, pdf_summarization_node, pdf_reminder_node, pdf_end_node],
+    control_flow_connections=[
+        ControlFlowEdge(name="pdf_start_to_extraction", from_node=pdf_start_node, to_node=pdf_extraction_node),
+        ControlFlowEdge(name="pdf_extraction_to_summarization", from_node=pdf_extraction_node, to_node=pdf_summarization_node),
+        ControlFlowEdge(name="pdf_summarization_to_reminder", from_node=pdf_summarization_node, to_node=pdf_reminder_node),
+        ControlFlowEdge(name="pdf_reminder_to_end", from_node=pdf_reminder_node, to_node=pdf_end_node),
+    ],
+    data_flow_connections=[
+        DataFlowEdge(
+            name="pdf_path_edge",
+            source_node=pdf_start_node,
+            source_output="pdf_path",
+            destination_node=pdf_extraction_node,
+            destination_input="pdf_path"
+        ),
+        DataFlowEdge(
+            name="pdf_text_to_summarization",
+            source_node=pdf_extraction_node,
+            source_output="extracted_text",
+            destination_node=pdf_summarization_node,
+            destination_input="extracted_text"
+        ),
+        DataFlowEdge(
+            name="pdf_text_to_reminder",
+            source_node=pdf_extraction_node,
+            source_output="extracted_text",
+            destination_node=pdf_reminder_node,
+            destination_input="extracted_text"
+        ),
+        DataFlowEdge(
+            name="pdf_filename_to_reminder",
+            source_node=pdf_start_node,
+            source_output="filename",
+            destination_node=pdf_reminder_node,
+            destination_input="filename"
+        ),
+        DataFlowEdge(
+            name="pdf_analysis_to_reminder",
+            source_node=pdf_summarization_node,
+            source_output="analysis_result",
+            destination_node=pdf_reminder_node,
+            destination_input="analysis_result"
+        ),
+        DataFlowEdge(
+            name="pdf_text_to_end",
+            source_node=pdf_extraction_node,
+            source_output="extracted_text",
+            destination_node=pdf_end_node,
+            destination_input="text"
+        ),
+        DataFlowEdge(
+            name="pdf_analysis_to_end",
+            source_node=pdf_summarization_node,
+            source_output="analysis_result",
+            destination_node=pdf_end_node,
+            destination_input="analysis"
+        ),
+        DataFlowEdge(
+            name="pdf_reminder_to_end",
+            source_node=pdf_reminder_node,
+            source_output="reminder_data",
+            destination_node=pdf_end_node,
+            destination_input="reminder"
+        )
+    ]
+)
+
 # Register the tool implementations
 tool_registry = {
     "analyze_image": analyze_image,
+    "extract_pdf_text": extract_pdf_text,
     "summarize_and_extract_keywords": summarize_and_extract_keywords,
     "analyze_for_reminder": analyze_for_reminder
 }
 
-def process_document(file_path: str, filename: str = None) -> dict:
+def process_document(file_path: str, filename: str = None, is_pdf: bool = False) -> dict:
     """
-    Process a document (image) using the AI agent flow to extract text, summarize, extract keywords, and analyze for reminders.
+    Process a document (image or PDF) using the AI agent flow to extract text, summarize, extract keywords, and analyze for reminders.
+    
+    Args:
+        file_path: Path to the document file
+        filename: Optional filename (extracted from path if not provided)
+        is_pdf: Whether the file is a PDF (True) or image (False)
     
     Returns:
         dict with keys: 'text', 'summary', 'keywords', 'reminder_data'
@@ -323,11 +485,20 @@ def process_document(file_path: str, filename: str = None) -> dict:
         if filename is None:
             filename = Path(file_path).name
         
-        executable_flow = AgentSpecLoader(tool_registry=tool_registry).load_component(flow)
-        conversation = executable_flow.start_conversation({
-            "image_path": file_path,
-            "filename": filename
-        })
+        # Choose the appropriate flow based on file type
+        if is_pdf:
+            executable_flow = AgentSpecLoader(tool_registry=tool_registry).load_component(pdf_flow)
+            conversation = executable_flow.start_conversation({
+                "pdf_path": file_path,
+                "filename": filename
+            })
+        else:
+            executable_flow = AgentSpecLoader(tool_registry=tool_registry).load_component(flow)
+            conversation = executable_flow.start_conversation({
+                "image_path": file_path,
+                "filename": filename
+            })
+        
         status = conversation.execute()
         
         extracted_text = status.output_values.get("text", "")

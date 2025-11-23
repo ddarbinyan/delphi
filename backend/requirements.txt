@@ -8,3 +8,4 @@ pyagentspec
 wayflowcore
 together
 chromadb
+pymupdf
