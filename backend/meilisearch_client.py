@@ -87,7 +87,8 @@ class MeilisearchClient:
             print(f"Error indexing document {doc_id}: {e}")
             
     def search(self, query: str, semantic_ratio: float = 0.0, 
-               filters: Optional[Dict] = None, limit: int = 20) -> Dict[str, Any]:
+               filters: Optional[Dict] = None, limit: int = 20, 
+               vector: Optional[List[float]] = None) -> Dict[str, Any]:
         """
         Search for documents using keyword or hybrid search.
         
@@ -96,6 +97,7 @@ class MeilisearchClient:
             semantic_ratio: 0=keyword only, 0.5=balanced, 1=semantic only (requires embedder)
             filters: Optional filters dict with keys 'type' and/or 'parent_folder_id'
             limit: Maximum number of results to return
+            vector: Optional embedding vector for the query (required for hybrid search)
             
         Returns:
             Search results with hits, totalHits, and processingTimeMs
@@ -105,11 +107,12 @@ class MeilisearchClient:
         }
         
         # Add hybrid search if semantic_ratio > 0 (requires embedder to be configured)
-        if semantic_ratio > 0:
+        if semantic_ratio > 0 and vector:
             opt_params["hybrid"] = {
                 "semanticRatio": semantic_ratio,
                 "embedder": "default"
             }
+            opt_params["vector"] = vector
         
         # Build filter string
         if filters:

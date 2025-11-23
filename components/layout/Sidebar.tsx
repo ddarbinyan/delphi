@@ -103,6 +103,7 @@ export function Sidebar() {
             <CreateFolderDialog
                 open={showCreateFolder}
                 onOpenChange={setShowCreateFolder}
+                currentFolderId={currentFolderId}
             />
         </>
     );

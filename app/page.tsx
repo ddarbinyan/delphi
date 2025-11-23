@@ -27,7 +27,7 @@ import { Breadcrumb } from "@/components/drive/Breadcrumb";
 import { CreateFolderDialog } from "@/components/drive/CreateFolderDialog";
 import { SearchBar } from "@/components/search/SearchBar";
 import { SearchResults } from "@/components/search/SearchResults";
-import { useSearch } from "@/hooks/useSearch";
+import { useSearch, type SearchResult } from "@/hooks/useSearch";
 import {
     Select,
     SelectContent,
@@ -192,10 +192,10 @@ export default function DrivePage() {
                     open={selectedDoc !== null}
                     onOpenChange={(open) => !open && setSelectedDoc(null)}
                     onNavigateNext={() => {
-                        if (!selectedDoc || !searchResults) return;
-                        const currentIndex = searchResults.findIndex(r => r.id === selectedDoc.id);
-                        if (currentIndex !== -1 && currentIndex < searchResults.length - 1) {
-                            const nextResult = searchResults[currentIndex + 1];
+                        if (!selectedDoc || !searchResults?.hits) return;
+                        const currentIndex = searchResults.hits.findIndex((r: SearchResult) => r.id === selectedDoc.id);
+                        if (currentIndex !== -1 && currentIndex < searchResults.hits.length - 1) {
+                            const nextResult = searchResults.hits[currentIndex + 1];
                             setSelectedDoc({
                                 id: nextResult.id,
                                 title: nextResult.title,
@@ -209,10 +209,10 @@ export default function DrivePage() {
                         }
                     }}
                     onNavigatePrevious={() => {
-                        if (!selectedDoc || !searchResults) return;
-                        const currentIndex = searchResults.findIndex(r => r.id === selectedDoc.id);
+                        if (!selectedDoc || !searchResults?.hits) return;
+                        const currentIndex = searchResults.hits.findIndex((r: SearchResult) => r.id === selectedDoc.id);
                         if (currentIndex > 0) {
-                            const prevResult = searchResults[currentIndex - 1];
+                            const prevResult = searchResults.hits[currentIndex - 1];
                             setSelectedDoc({
                                 id: prevResult.id,
                                 title: prevResult.title,
@@ -438,7 +438,7 @@ export default function DrivePage() {
                                                                 {new Date(folder.createdAt).toLocaleDateString()}
                                                             </TableCell>
                                                             <TableCell className="text-right text-sm font-mono">
-                                                                {folder.documentCount || 0} items
+                                                                - items
                                                             </TableCell>
                                                         </TableRow>
                                                     );

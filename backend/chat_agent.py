@@ -292,13 +292,26 @@ def search_documents(query: str, semantic_ratio: str = "0.5", limit: str = "20")
         # Track all found documents with their best scores
         doc_scores = {}  # doc_id -> {"doc": doc_data, "score": best_score, "matched_keywords": []}
         
-        # Search each keyword individually
+        # Search each keyword individually with hybrid search
         for keyword in keywords:
             try:
+                # Generate embedding for the keyword for semantic search
+                keyword_embedding = None
+                effective_semantic_ratio = semantic_ratio_float
+                
+                if semantic_ratio_float > 0:
+                    try:
+                        keyword_embedding = generate_embedding(keyword)
+                    except Exception as embed_error:
+                        print(f"Failed to generate embedding for '{keyword}': {embed_error}")
+                        # Fall back to keyword-only search if embedding fails
+                        effective_semantic_ratio = 0.0
+                
                 results = meili_client.search(
                     query=keyword,
-                    semantic_ratio=semantic_ratio_float,
-                    limit=max_limit
+                    semantic_ratio=effective_semantic_ratio,
+                    limit=max_limit,
+                    vector=keyword_embedding
                 )
                 
                 # Process hits from this keyword search

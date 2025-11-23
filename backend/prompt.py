@@ -191,11 +191,23 @@ Return your response as a valid JSON object with this exact structure:
 Rules:
 - Be STRICT: If there's any indication payment was already made, set requires_action to false
 - Only set requires_action to true for OUTSTANDING obligations or FUTURE actions
-- If no specific date is found, set due_date to null
-- If requires_action is false, other fields can be null
 - Extract dates in YYYY-MM-DD format (e.g., "2024-03-15")
 - Make action_title concise (under 50 characters)
 - Make action_description informative but brief (under 200 characters)
+
+DATE EXTRACTION RULES (CRITICAL):
+1. **Look for explicit dates first**: "Due date: March 15, 2024" → extract "2024-03-15"
+2. **Calculate relative dates**: If document says "due 60 days after invoice date of January 1, 2025" → calculate "2025-03-02"
+3. **Use invoice date as reference**: If you see "Invoice date: 2025-01-15" and "Payment due: 30 days", calculate the due date
+4. **Look for payment terms**: "Net 30", "Due in 60 days", "Payment within 45 days" - calculate from invoice/document date
+5. **Default to invoice date patterns**: Most invoices have a date near the top or in headers - use this as reference
+6. **ONLY set due_date to null if**: Absolutely no date information exists AND no relative date calculation is possible
+
+Date Calculation Examples:
+- "Invoice date: 2025-01-01, Payment due: 60 days" → due_date: "2025-03-02"
+- "Invoice: September 23, 2025, Net 30" → due_date: "2025-10-23"
+- "Due by March 15" (current year 2025) → due_date: "2025-03-15"
+- "Appointment on Jan 20, 2025 at 2 PM" → due_date: "2025-01-20"
 
 IMPORTANT: Return ONLY the JSON object, no additional text or explanation.
 """

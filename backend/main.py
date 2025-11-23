@@ -131,8 +131,11 @@ def process_document_pipeline(
                 due_date_str = reminder_data.get("due_date")
                 action_title = reminder_data.get("action_title", f"Action required: {filename}")
                 
-                # If there's a due date, check if it's overdue and mark it
-                if due_date_str:
+                # Only create reminders if there's a due date (database requires NOT NULL)
+                if not due_date_str:
+                    print(f"[Reminders] Skipping reminder for document {doc_id} - no due date provided")
+                else:
+                    # Check if date is valid and if it's overdue
                     try:
                         due_date = datetime.strptime(due_date_str, "%Y-%m-%d").date()
                         today = date.today()
@@ -141,17 +144,18 @@ def process_document_pipeline(
                             # Mark as overdue in the title
                             action_title = f"[OVERDUE] {action_title}"
                             print(f"[Reminders] Date {due_date_str} is in the past - marking as overdue")
+                        
+                        # Create reminder with valid due date
+                        reminder_id = doc_store.add_reminder(
+                            doc_id=doc_id,
+                            title=action_title,
+                            description=reminder_data.get("action_description", ""),
+                            due_date=due_date_str,
+                            category=reminder_data.get("category", "other")
+                        )
+                        print(f"[Reminders] Created reminder {reminder_id} for document {doc_id}")
                     except ValueError as e:
-                        print(f"[Reminders] Invalid date format {due_date_str}: {e}")
-                
-                reminder_id = doc_store.add_reminder(
-                    doc_id=doc_id,
-                    title=action_title,
-                    description=reminder_data.get("action_description", ""),
-                    due_date=due_date_str if due_date_str else None,
-                    category=reminder_data.get("category", "other")
-                )
-                print(f"[Reminders] Created reminder {reminder_id} for document {doc_id}")
+                        print(f"[Reminders] Invalid date format {due_date_str}: {e} - skipping reminder")
             except Exception as e:
                 print(f"[Reminders] Error creating reminder for document {doc_id}: {e}")
         else:
