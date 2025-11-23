@@ -40,7 +40,7 @@ export function Sidebar() {
             <div className="w-64 border-r bg-card h-screen flex flex-col p-4">
                 <div className="flex items-center gap-2 px-2 mb-8">
                     <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-                        <Cloud className="w-5 h-5 text-primary-foreground" />
+                        <img src="/logo-square.webp" alt="Delphi Logo" className="w-full h-full object-cover" />
                     </div>
                     <span className="font-bold text-xl tracking-tight">Delphi</span>
                 </div>

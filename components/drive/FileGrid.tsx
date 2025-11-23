@@ -28,12 +28,18 @@ const isImage = (filename: string) => {
     return ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext || '');
 };
 
+const isPdf = (filename: string) => {
+    const ext = filename.split('.').pop()?.toLowerCase();
+    return ext === 'pdf';
+};
+
 export function FileGrid({ documents, onDocumentClick, selectedIds, onToggleSelection }: FileGridProps) {
     return (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {documents.map((doc) => {
                 const Icon = getIcon(doc.type);
                 const isImg = isImage(doc.title);
+                const isPdfFile = isPdf(doc.title);
                 const isSelected = selectedIds.has(doc.id);
 
                 return (
@@ -81,6 +87,15 @@ export function FileGrid({ documents, onDocumentClick, selectedIds, onToggleSele
                                     alt={doc.title}
                                     className="w-full h-full object-cover transition-transform group-hover:scale-105"
                                 />
+                            ) : isPdfFile ? (
+                                <div className="relative w-full h-full bg-white">
+                                    <iframe
+                                        src={`${doc.url}#page=1&view=FitH`}
+                                        className="w-full h-full pointer-events-none scale-110"
+                                        title={doc.title}
+                                    />
+                                    <div className="absolute inset-0 pointer-events-none" />
+                                </div>
                             ) : (
                                 <Icon className="w-16 h-16 text-muted-foreground/50" />
                             )}
@@ -98,9 +113,6 @@ export function FileGrid({ documents, onDocumentClick, selectedIds, onToggleSele
                                     <h3 className="font-medium truncate text-sm" title={doc.title}>
                                         {doc.title}
                                     </h3>
-                                    <p className="text-xs text-muted-foreground truncate">
-                                        {doc.sender}
-                                    </p>
                                 </div>
                             </div>
                         </CardContent>

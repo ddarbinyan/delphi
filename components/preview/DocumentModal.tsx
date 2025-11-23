@@ -28,23 +28,33 @@ interface DocumentModalProps {
     document: Document | null;
     open: boolean;
     onOpenChange: (open: boolean) => void;
+    onNavigateNext?: () => void;
+    onNavigatePrevious?: () => void;
 }
 
-export function DocumentModal({ document, open, onOpenChange }: DocumentModalProps) {
+export function DocumentModal({ document, open, onOpenChange, onNavigateNext, onNavigatePrevious }: DocumentModalProps) {
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const { deleteDocument } = useDeleteDocument();
 
-    // Handle Escape key to close modal
+    // Handle keyboard navigation
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === "Escape" && open) {
+            if (!open) return;
+            
+            if (e.key === "Escape") {
                 onOpenChange(false);
+            } else if (e.key === "ArrowLeft" && onNavigatePrevious) {
+                e.preventDefault();
+                onNavigatePrevious();
+            } else if (e.key === "ArrowRight" && onNavigateNext) {
+                e.preventDefault();
+                onNavigateNext();
             }
         };
 
         window.addEventListener("keydown", handleKeyDown);
         return () => window.removeEventListener("keydown", handleKeyDown);
-    }, [open, onOpenChange]);
+    }, [open, onOpenChange, onNavigateNext, onNavigatePrevious]);
 
     if (!document) return null;
 
@@ -139,42 +149,18 @@ export function DocumentModal({ document, open, onOpenChange }: DocumentModalPro
                                         <p className="text-sm leading-relaxed">{document.summary}</p>
                                     </div>
 
-                                    <div className="space-y-4">
-                                        <div>
-                                            <h4 className="text-sm font-medium text-muted-foreground mb-1">
-                                                Sender
-                                            </h4>
-                                            <p className="text-sm font-medium">{document.sender}</p>
-                                        </div>
-                                        <div>
-                                            <h4 className="text-sm font-medium text-muted-foreground mb-1">
-                                                Date
-                                            </h4>
-                                            <p className="text-sm font-medium">
-                                                {new Date(document.createdAt).toLocaleDateString(undefined, {
-                                                    weekday: "long",
-                                                    year: "numeric",
-                                                    month: "long",
-                                                    day: "numeric",
-                                                })}
-                                            </p>
-                                        </div>
-                                    </div>
-
-                                    <div className="p-4 bg-muted/50 rounded-lg space-y-3">
-                                        <h4 className="text-sm font-medium">Extracted Data</h4>
-                                        <div className="flex justify-between text-sm">
-                                            <span className="text-muted-foreground">Amount</span>
-                                            <span className="font-mono font-medium">$1,250.00</span>
-                                        </div>
-                                        <div className="flex justify-between text-sm">
-                                            <span className="text-muted-foreground">Due Date</span>
-                                            <span className="font-medium">Nov 30, 2023</span>
-                                        </div>
-                                        <div className="flex justify-between text-sm">
-                                            <span className="text-muted-foreground">Invoice #</span>
-                                            <span className="font-mono text-xs">INV-2023-001</span>
-                                        </div>
+                                    <div>
+                                        <h4 className="text-sm font-medium text-muted-foreground mb-1">
+                                            Date Added
+                                        </h4>
+                                        <p className="text-sm font-medium">
+                                            {new Date(document.createdAt).toLocaleDateString(undefined, {
+                                                weekday: "long",
+                                                year: "numeric",
+                                                month: "long",
+                                                day: "numeric",
+                                            })}
+                                        </p>
                                     </div>
                                 </div>
                             </ScrollArea>
@@ -183,9 +169,6 @@ export function DocumentModal({ document, open, onOpenChange }: DocumentModalPro
                                 <Button className="flex-1" variant="outline" onClick={() => window.open(document.url, '_blank')}>
                                     <Download className="w-4 h-4 mr-2" />
                                     Download
-                                </Button>
-                                <Button variant="ghost" size="icon">
-                                    <Share2 className="w-4 h-4" />
                                 </Button>
                                 <Button
                                     variant="ghost"

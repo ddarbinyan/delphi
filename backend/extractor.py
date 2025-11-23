@@ -518,6 +518,9 @@ def process_document(file_path: str, filename: str = None, is_pdf: bool = False)
         # Parse the reminder JSON
         try:
             reminder_data = json.loads(reminder_json)
+            print(f"[DEBUG] Raw reminder_json: {reminder_json}")
+            print(f"[DEBUG] Parsed reminder_data: {reminder_data}")
+            print(f"[DEBUG] requires_action value: {reminder_data.get('requires_action')} (type: {type(reminder_data.get('requires_action'))})")
         except json.JSONDecodeError:
             print(f"Failed to parse reminder JSON: {reminder_json}")
             reminder_data = {}

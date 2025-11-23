@@ -123,12 +123,30 @@ def process_document_pipeline(
                 print(f"[Background] AI Extraction error: {e}")
         
         # Create reminder for all actionable items
+        print(f"[Reminders] Reminder data for {filename}: {reminder_data}")
         if reminder_data and reminder_data.get("requires_action"):
+            print(f"[Reminders] Document {doc_id} requires action - creating reminder")
             try:
+                from datetime import datetime, date
                 due_date_str = reminder_data.get("due_date")
+                action_title = reminder_data.get("action_title", f"Action required: {filename}")
+                
+                # If there's a due date, check if it's overdue and mark it
+                if due_date_str:
+                    try:
+                        due_date = datetime.strptime(due_date_str, "%Y-%m-%d").date()
+                        today = date.today()
+                        
+                        if due_date < today:
+                            # Mark as overdue in the title
+                            action_title = f"[OVERDUE] {action_title}"
+                            print(f"[Reminders] Date {due_date_str} is in the past - marking as overdue")
+                    except ValueError as e:
+                        print(f"[Reminders] Invalid date format {due_date_str}: {e}")
+                
                 reminder_id = doc_store.add_reminder(
                     doc_id=doc_id,
-                    title=reminder_data.get("action_title", f"Action required: {filename}"),
+                    title=action_title,
                     description=reminder_data.get("action_description", ""),
                     due_date=due_date_str if due_date_str else None,
                     category=reminder_data.get("category", "other")
@@ -136,6 +154,8 @@ def process_document_pipeline(
                 print(f"[Reminders] Created reminder {reminder_id} for document {doc_id}")
             except Exception as e:
                 print(f"[Reminders] Error creating reminder for document {doc_id}: {e}")
+        else:
+            print(f"[Reminders] Document {doc_id} does not require action - skipping reminder")
         
         # Index in Meilisearch if content is available
         if content:

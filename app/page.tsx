@@ -191,6 +191,40 @@ export default function DrivePage() {
                     document={selectedDoc}
                     open={selectedDoc !== null}
                     onOpenChange={(open) => !open && setSelectedDoc(null)}
+                    onNavigateNext={() => {
+                        if (!selectedDoc || !searchResults) return;
+                        const currentIndex = searchResults.findIndex(r => r.id === selectedDoc.id);
+                        if (currentIndex !== -1 && currentIndex < searchResults.length - 1) {
+                            const nextResult = searchResults[currentIndex + 1];
+                            setSelectedDoc({
+                                id: nextResult.id,
+                                title: nextResult.title,
+                                type: nextResult.type as any,
+                                sender: nextResult.sender || "Unknown",
+                                summary: nextResult.summary || (nextResult.content ? nextResult.content.substring(0, 200) + "..." : "No content preview"),
+                                url: nextResult.url,
+                                createdAt: nextResult.uploadDate,
+                                size: nextResult.size
+                            });
+                        }
+                    }}
+                    onNavigatePrevious={() => {
+                        if (!selectedDoc || !searchResults) return;
+                        const currentIndex = searchResults.findIndex(r => r.id === selectedDoc.id);
+                        if (currentIndex > 0) {
+                            const prevResult = searchResults[currentIndex - 1];
+                            setSelectedDoc({
+                                id: prevResult.id,
+                                title: prevResult.title,
+                                type: prevResult.type as any,
+                                sender: prevResult.sender || "Unknown",
+                                summary: prevResult.summary || (prevResult.content ? prevResult.content.substring(0, 200) + "..." : "No content preview"),
+                                url: prevResult.url,
+                                createdAt: prevResult.uploadDate,
+                                size: prevResult.size
+                            });
+                        }
+                    }}
                 />
             </div>
         );
@@ -451,6 +485,20 @@ export default function DrivePage() {
                         document={selectedDoc}
                         open={!!selectedDoc}
                         onOpenChange={(open) => !open && setSelectedDoc(null)}
+                        onNavigateNext={() => {
+                            if (!selectedDoc || !documents) return;
+                            const currentIndex = documents.findIndex(d => d.id === selectedDoc.id);
+                            if (currentIndex !== -1 && currentIndex < documents.length - 1) {
+                                setSelectedDoc(documents[currentIndex + 1]);
+                            }
+                        }}
+                        onNavigatePrevious={() => {
+                            if (!selectedDoc || !documents) return;
+                            const currentIndex = documents.findIndex(d => d.id === selectedDoc.id);
+                            if (currentIndex > 0) {
+                                setSelectedDoc(documents[currentIndex - 1]);
+                            }
+                        }}
                     />
 
                     <CreateFolderDialog
@@ -487,6 +535,20 @@ export default function DrivePage() {
                 document={selectedDoc}
                 open={selectedDoc !== null}
                 onOpenChange={(open) => !open && setSelectedDoc(null)}
+                onNavigateNext={() => {
+                    if (!selectedDoc || !documents) return;
+                    const currentIndex = documents.findIndex(d => d.id === selectedDoc.id);
+                    if (currentIndex !== -1 && currentIndex < documents.length - 1) {
+                        setSelectedDoc(documents[currentIndex + 1]);
+                    }
+                }}
+                onNavigatePrevious={() => {
+                    if (!selectedDoc || !documents) return;
+                    const currentIndex = documents.findIndex(d => d.id === selectedDoc.id);
+                    if (currentIndex > 0) {
+                        setSelectedDoc(documents[currentIndex - 1]);
+                    }
+                }}
             />
 
             {/* Create Folder Dialog */}
