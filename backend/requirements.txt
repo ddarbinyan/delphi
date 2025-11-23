@@ -3,3 +3,7 @@ uvicorn
 python-multipart
 meilisearch
 camel-converter
+python-dotenv
+pyagentspec
+wayflowcore
+together

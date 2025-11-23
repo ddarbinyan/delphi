@@ -3,12 +3,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from typing import List, Optional
 import os
+import json
+from dotenv import load_dotenv
 try:
     from .store import DocumentStore, VectorStore, FileStore
     from .meilisearch_client import MeilisearchClient
-except ImportError:
+    from .extractor import process_document
+    from .embeddings import generate_embedding
+except ImportError as e:
+    print(f"ImportError caught: {e}")
     from store import DocumentStore, VectorStore, FileStore
     from meilisearch_client import MeilisearchClient
+    from extractor import process_document
+    from embeddings import generate_embedding
 
 app = FastAPI()
 
@@ -26,11 +33,11 @@ doc_store = DocumentStore()
 vector_store = VectorStore()
 file_store = FileStore()
 
-# Initialize Meilisearch (keyword-only for now, no embedder)
+# Initialize Meilisearch with user-provided embeddings (Together AI)
 meili_client = MeilisearchClient(host="http://localhost:7700")
-openai_key = os.getenv("OPENAI_API_KEY")  # Optional: for semantic search
+load_dotenv("api.env")
 try:
-    meili_client.setup_index(openai_api_key=openai_key)
+    meili_client.setup_index(use_embeddings=True)  # Enable Together AI embeddings
 except Exception as e:
     print(f"Warning: Meilisearch setup failed: {e}")
     print("Continuing without search functionality...")
@@ -61,8 +68,29 @@ async def upload_document(
         if "invoice" in file.filename.lower(): doc_type = "invoice"
         elif "receipt" in file.filename.lower(): doc_type = "receipt"
         
-        # 3. Save metadata + content to SQLite
+        # 3. Extract content using AI agent if it's an image and no content provided
+        summary = ""
+        keywords = []
+        
+        if not content and ext in [".jpg", ".png", ".jpeg", ".webp"]:
+            try:
+                print(f"Extracting text from image: {file_path}")
+                result = process_document(file_path)
+                if result and result.get("text"):
+                    content = result["text"]
+                    summary = result.get("summary", "")
+                    keywords = result.get("keywords", [])
+                    print(f"Extracted {len(content)} characters from image")
+                    print(f"Summary: {summary}")
+                    print(f"Keywords: {', '.join(keywords)}")
+            except Exception as e:
+                print(f"AI Extraction error: {e}")
+
+        # 4. Save metadata + content to SQLite
         size = f"{file.size / 1024:.1f} KB" if file.size else "0 KB"
+        
+        # Convert keywords list to JSON string for storage
+        keywords_json = json.dumps(keywords) if keywords else None
         
         doc_id = doc_store.add_document(
             filename=file.filename,
@@ -70,21 +98,35 @@ async def upload_document(
             type=doc_type,
             size=size,
             parent_folder_id=parent_folder_id,
-            content=content or ""  # Store extracted text
+            content=content or "",
+            summary=summary or None,
+            keywords=keywords_json
         )
         
         print(f"Document created with ID: {doc_id}, parent_folder_id: {parent_folder_id}")
         
-        # 4. Index in Meilisearch if content provided
+        # 5. Index in Meilisearch if content provided
         if content:
             try:
-                meili_client.index_document(
-                    doc_id=doc_id,
-                    filename=file.filename,
-                    content=content,
-                    doc_type=doc_type,
-                    folder_id=parent_folder_id
-                )
+                # Generate embedding for semantic search
+                embedding_text = f"{file.filename}: {content}"
+                embedding = generate_embedding(embedding_text)
+                
+                # Only index if we have an embedding (when embeddings are enabled)
+                # or if embeddings are disabled (keyword-only mode)
+                if embedding is not None:
+                    meili_client.index_document(
+                        doc_id=doc_id,
+                        filename=file.filename,
+                        content=content,
+                        doc_type=doc_type,
+                        folder_id=parent_folder_id,
+                        embedding=embedding,
+                        summary=summary,
+                        keywords=keywords
+                    )
+                else:
+                    print(f"Warning: Embedding generation failed for document {doc_id}, skipping Meilisearch indexing")
             except Exception as e:
                 print(f"Meilisearch indexing error: {e}")
         

@@ -16,40 +16,42 @@ class MeilisearchClient:
             # Index might already exist
             pass
         
-    def setup_index(self, openai_api_key: Optional[str] = None):
+    def setup_index(self, use_embeddings: bool = False):
         """
         Configure the documents index with searchable attributes and optional embedder.
         
         Args:
-            openai_api_key: Optional OpenAI API key for semantic search embeddings
+            use_embeddings: Whether to enable user-provided embeddings for semantic search
         """
         settings = {
-            "searchableAttributes": ["filename", "content"],
+            "searchableAttributes": ["filename", "content", "summary", "keywords"],
             "filterableAttributes": ["type", "parent_folder_id"],
             "sortableAttributes": ["upload_date"],
             "displayedAttributes": ["id", "filename", "type", "parent_folder_id"]
         }
         
-        # Add embedder configuration if OpenAI key is provided
-        if openai_api_key:
+        # Add embedder configuration for user-provided embeddings (Together AI)
+        # Note: embeddings are optional - documents can be indexed with or without them
+        if use_embeddings:
             settings["embedders"] = {
                 "default": {
-                    "source": "openAi",
-                    "apiKey": openai_api_key,
-                    "model": "text-embedding-3-small",
-                    "dimensions": 1536,
-                    "documentTemplate": "{{doc.filename}}: {{doc.content}}"
+                    "source": "userProvided",
+                    "dimensions": 768,  # Alibaba-NLP/gte-modernbert-base uses 768 dimensions
+                    "binaryQuantized": False
                 }
             }
         
         try:
             self.index.update_settings(settings)
-            print(f"Meilisearch index '{self.index_name}' configured successfully")
+            embedder_status = "with user-provided embeddings" if use_embeddings else "keyword-only"
+            print(f"Meilisearch index '{self.index_name}' configured successfully ({embedder_status})")
         except Exception as e:
             print(f"Error configuring Meilisearch index: {e}")
             
     def index_document(self, doc_id: int, filename: str, content: str, 
-                       doc_type: str, folder_id: Optional[int] = None):
+                       doc_type: str, folder_id: Optional[int] = None,
+                       embedding: Optional[list] = None, summary: Optional[str] = None,
+                       keywords: Optional[list] = None):
         """
         Add or update a document in the Meilisearch index.
         
@@ -59,18 +61,28 @@ class MeilisearchClient:
             content: Extracted text content
             doc_type: Document type (image, document, etc.)
             folder_id: Parent folder ID, if any
+            embedding: Optional embedding vector for semantic search
+            summary: Optional AI-generated summary
+            keywords: Optional list of keywords
         """
         document = {
             "id": str(doc_id),
             "filename": filename,
             "content": content or "",
             "type": doc_type,
-            "parent_folder_id": folder_id
+            "parent_folder_id": folder_id,
+            "summary": summary or "",
+            "keywords": " ".join(keywords) if keywords else ""  # Join keywords for text search
         }
+        
+        # Add embedding vector if provided
+        if embedding:
+            document["_vectors"] = {"default": embedding}
         
         try:
             self.index.add_documents([document])
-            print(f"Indexed document {doc_id}: {filename}")
+            embed_status = "with embedding" if embedding else "without embedding"
+            print(f"Indexed document {doc_id}: {filename} ({embed_status})")
         except Exception as e:
             print(f"Error indexing document {doc_id}: {e}")
             

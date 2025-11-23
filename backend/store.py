@@ -50,9 +50,18 @@ class DocumentStore:
                 sender TEXT,
                 parent_folder_id INTEGER,
                 content TEXT,
+                keywords TEXT,
                 FOREIGN KEY (parent_folder_id) REFERENCES folders(id) ON DELETE CASCADE
             )
         """)
+        
+        # Add keywords column if it doesn't exist (for existing databases)
+        try:
+            cursor.execute("ALTER TABLE documents ADD COLUMN keywords TEXT")
+            self.conn.commit()
+        except sqlite3.OperationalError:
+            # Column already exists
+            pass
         self.conn.commit()
 
     def create_folder(self, name: str, parent_id: Optional[int] = None) -> int:
@@ -123,11 +132,11 @@ class DocumentStore:
         
         return cursor.rowcount > 0
 
-    def add_document(self, filename: str, path: str, type: str, size: str, parent_folder_id: Optional[int] = None, content: Optional[str] = None) -> int:
+    def add_document(self, filename: str, path: str, type: str, size: str, parent_folder_id: Optional[int] = None, content: Optional[str] = None, summary: Optional[str] = None, keywords: Optional[str] = None) -> int:
         cursor = self.conn.cursor()
         cursor.execute(
-            "INSERT INTO documents (filename, path, type, size, parent_folder_id, content) VALUES (?, ?, ?, ?, ?, ?)",
-            (filename, path, type, size, parent_folder_id, content)
+            "INSERT INTO documents (filename, path, type, size, parent_folder_id, content, summary, keywords) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (filename, path, type, size, parent_folder_id, content, summary, keywords)
         )
         self.conn.commit()
         return cursor.lastrowid
