@@ -5,6 +5,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { QueryProvider } from "@/components/providers/QueryProvider";
 import { Toaster } from "@/components/ui/sonner";
 import { FolderProvider } from "@/contexts/FolderContext";
+import { ChatWidget } from "@/components/chat/ChatWidget";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -29,6 +30,7 @@ export default function RootLayout({
                                 {children}
                             </main>
                         </div>
+                        <ChatWidget />
                         <Toaster />
                     </FolderProvider>
                 </QueryProvider>

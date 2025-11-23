@@ -1,18 +1,27 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { MessageSquare, X, Send, Sparkles } from "lucide-react";
+import { MessageSquare, X, Send, Sparkles, FileText, ExternalLink, Eye } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { useChat, Citation } from "@/hooks/useChat";
 
 interface Message {
     id: string;
     role: "user" | "assistant";
     content: string;
+    citations?: Citation[];
 }
 
 export function ChatWidget() {
@@ -25,8 +34,9 @@ export function ChatWidget() {
         },
     ]);
     const [inputValue, setInputValue] = useState("");
-    const [isTyping, setIsTyping] = useState(false);
+    const [previewCitation, setPreviewCitation] = useState<Citation | null>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
+    const chatMutation = useChat();
 
     useEffect(() => {
         if (scrollRef.current) {
@@ -34,9 +44,25 @@ export function ChatWidget() {
         }
     }, [messages]);
 
+    // Handle ESC key to close chat widget or preview modal
+    useEffect(() => {
+        const handleEscape = (e: KeyboardEvent) => {
+            if (e.key === "Escape") {
+                if (previewCitation) {
+                    setPreviewCitation(null);
+                } else if (isOpen) {
+                    setIsOpen(false);
+                }
+            }
+        };
+
+        document.addEventListener("keydown", handleEscape);
+        return () => document.removeEventListener("keydown", handleEscape);
+    }, [isOpen, previewCitation]);
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!inputValue.trim()) return;
+        if (!inputValue.trim() || chatMutation.isPending) return;
 
         const userMessage: Message = {
             id: Date.now().toString(),
@@ -45,19 +71,31 @@ export function ChatWidget() {
         };
 
         setMessages((prev) => [...prev, userMessage]);
+        const queryText = inputValue;
         setInputValue("");
-        setIsTyping(true);
 
-        // Simulate API call
-        setTimeout(() => {
+        try {
+            const response = await chatMutation.mutateAsync({
+                message: queryText,
+                semantic_ratio: 0.7,  // Higher semantic search for better concept matching
+                limit: 10,  // More documents for comprehensive answers
+            });
+
             const aiMessage: Message = {
                 id: (Date.now() + 1).toString(),
                 role: "assistant",
-                content: "I can help you find that document. Searching through your files...",
+                content: response.answer,
+                citations: response.citations,
             };
             setMessages((prev) => [...prev, aiMessage]);
-            setIsTyping(false);
-        }, 1500);
+        } catch (error) {
+            const errorMessage: Message = {
+                id: (Date.now() + 1).toString(),
+                role: "assistant",
+                content: "Sorry, I encountered an error while processing your request. Please try again.",
+            };
+            setMessages((prev) => [...prev, errorMessage]);
+        }
     };
 
     return (
@@ -69,7 +107,7 @@ export function ChatWidget() {
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: 20, scale: 0.95 }}
                         transition={{ duration: 0.2 }}
-                        className="fixed bottom-24 right-6 w-96 h-[500px] bg-card border rounded-2xl shadow-2xl flex flex-col overflow-hidden z-50"
+                        className="fixed bottom-24 right-6 w-[420px] max-h-[600px] h-[85vh] bg-card border rounded-2xl shadow-2xl flex flex-col z-50"
                     >
                         {/* Header */}
                         <div className="p-4 border-b bg-primary text-primary-foreground flex items-center justify-between">
@@ -95,44 +133,89 @@ export function ChatWidget() {
                         </div>
 
                         {/* Messages */}
-                        <ScrollArea className="flex-1 p-4">
-                            <div className="space-y-4">
+                        <ScrollArea className="flex-1 p-4 overflow-y-auto">
+                            <div className="space-y-4 pb-4">
                                 {messages.map((message) => (
                                     <div
                                         key={message.id}
                                         className={cn(
-                                            "flex gap-3 max-w-[85%]",
-                                            message.role === "user" ? "ml-auto flex-row-reverse" : ""
+                                            "flex gap-2 w-full",
+                                            message.role === "user" ? "justify-end" : "justify-start"
                                         )}
                                     >
-                                        <Avatar className="w-8 h-8 shrink-0">
-                                            {message.role === "assistant" ? (
-                                                <>
-                                                    <AvatarImage src="/bot-avatar.png" />
-                                                    <AvatarFallback className="bg-primary text-primary-foreground">
-                                                        AI
-                                                    </AvatarFallback>
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <AvatarImage src="https://github.com/shadcn.png" />
-                                                    <AvatarFallback>ME</AvatarFallback>
-                                                </>
+                                        {message.role === "assistant" && (
+                                            <Avatar className="w-7 h-7 shrink-0 mt-0.5">
+                                                <AvatarFallback className="bg-primary text-primary-foreground text-xs">
+                                                    AI
+                                                </AvatarFallback>
+                                            </Avatar>
+                                        )}
+                                        <div className={cn(
+                                            "flex flex-col gap-2 max-w-[85%]",
+                                            message.role === "user" ? "items-end" : "items-start"
+                                        )}>
+                                            <div
+                                                className={cn(
+                                                    "p-3 rounded-2xl text-sm break-words",
+                                                    message.role === "user"
+                                                        ? "bg-primary text-primary-foreground rounded-tr-sm"
+                                                        : "bg-muted rounded-tl-sm"
+                                                )}
+                                            >
+                                                <p className="whitespace-pre-wrap">{message.content}</p>
+                                            </div>
+                                            {message.citations && message.citations.length > 0 && (
+                                                <div className="flex flex-col gap-1.5 w-full">
+                                                    <p className="text-xs text-muted-foreground font-medium px-1">
+                                                        📎 {message.citations.length} {message.citations.length === 1 ? 'source' : 'sources'}
+                                                    </p>
+                                                    <div className="flex flex-wrap gap-1.5">
+                                                        {message.citations.map((citation) => (
+                                                            <TooltipProvider key={citation.id}>
+                                                                <Tooltip delayDuration={200}>
+                                                                    <TooltipTrigger asChild>
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                console.log('Citation clicked:', citation);
+                                                                                setPreviewCitation(citation);
+                                                                            }}
+                                                                            className="flex items-center gap-1.5 px-2 py-1.5 bg-background border rounded-lg hover:bg-accent transition-colors text-xs group"
+                                                                        >
+                                                                            <FileText className="w-3 h-3 text-primary shrink-0" />
+                                                                            <span className="font-medium truncate max-w-[120px]">
+                                                                                {citation.title || 'Unknown'}
+                                                                            </span>
+                                                                            <Eye className="w-3 h-3 text-muted-foreground group-hover:text-primary shrink-0" />
+                                                                        </button>
+                                                                    </TooltipTrigger>
+                                                                    <TooltipContent side="top" className="max-w-xs">
+                                                                        <div className="space-y-1">
+                                                                            <p className="font-semibold text-xs">{citation.title || 'Unknown'}</p>
+                                                                            {citation.summary && (
+                                                                                <p className="text-xs text-muted-foreground">
+                                                                                    {citation.summary.slice(0, 100)}...
+                                                                                </p>
+                                                                            )}
+                                                                            <Badge variant="secondary" className="text-xs">
+                                                                                {citation.type || 'document'}
+                                                                            </Badge>
+                                                                        </div>
+                                                                    </TooltipContent>
+                                                                </Tooltip>
+                                                            </TooltipProvider>
+                                                        ))}
+                                                    </div>
+                                                </div>
                                             )}
-                                        </Avatar>
-                                        <div
-                                            className={cn(
-                                                "p-3 rounded-2xl text-sm",
-                                                message.role === "user"
-                                                    ? "bg-primary text-primary-foreground rounded-tr-none"
-                                                    : "bg-muted rounded-tl-none"
-                                            )}
-                                        >
-                                            {message.content}
                                         </div>
+                                        {message.role === "user" && (
+                                            <Avatar className="w-7 h-7 shrink-0 mt-0.5">
+                                                <AvatarFallback className="text-xs">ME</AvatarFallback>
+                                            </Avatar>
+                                        )}
                                     </div>
                                 ))}
-                                {isTyping && (
+                                {chatMutation.isPending && (
                                     <div className="flex gap-3 max-w-[85%]">
                                         <Avatar className="w-8 h-8 shrink-0">
                                             <AvatarFallback className="bg-primary text-primary-foreground">
@@ -151,19 +234,141 @@ export function ChatWidget() {
                         </ScrollArea>
 
                         {/* Input */}
-                        <div className="p-4 border-t bg-background">
+                        <div className="p-4 border-t bg-background/95 backdrop-blur-sm">
                             <form onSubmit={handleSubmit} className="flex gap-2">
                                 <Input
-                                    placeholder="Ask anything..."
+                                    placeholder="Ask about your documents..."
                                     value={inputValue}
                                     onChange={(e) => setInputValue(e.target.value)}
+                                    disabled={chatMutation.isPending}
                                     className="flex-1"
+                                    autoComplete="off"
                                 />
-                                <Button type="submit" size="icon" disabled={!inputValue.trim() || isTyping}>
+                                <Button 
+                                    type="submit" 
+                                    size="icon" 
+                                    disabled={!inputValue.trim() || chatMutation.isPending}
+                                    className="shrink-0"
+                                >
                                     <Send className="w-4 h-4" />
                                 </Button>
                             </form>
                         </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* Citation Preview Modal */}
+            <AnimatePresence>
+                {previewCitation && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4"
+                        onClick={() => setPreviewCitation(null)}
+                    >
+                        <motion.div
+                            initial={{ scale: 0.95, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0.95, opacity: 0 }}
+                            transition={{ duration: 0.2 }}
+                            className="bg-card border rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            {/* Modal Header */}
+                            <div className="p-4 border-b bg-muted/50 flex items-center justify-between">
+                                <div className="flex items-center gap-3 min-w-0 flex-1">
+                                    <div className="p-2 bg-primary/10 rounded-lg">
+                                        <FileText className="w-5 h-5 text-primary" />
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                        <h3 className="font-semibold text-sm truncate">
+                                            {previewCitation.title}
+                                        </h3>
+                                        <div className="flex items-center gap-2 mt-0.5">
+                                            <Badge variant="secondary" className="text-xs">
+                                                {previewCitation.type}
+                                            </Badge>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => window.open(previewCitation.url, '_blank')}
+                                    >
+                                        <ExternalLink className="w-4 h-4 mr-2" />
+                                        Open
+                                    </Button>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={() => setPreviewCitation(null)}
+                                    >
+                                        <X className="w-4 h-4" />
+                                    </Button>
+                                </div>
+                            </div>
+
+                            {/* Modal Content */}
+                            <div className="flex-1 overflow-auto p-6">
+                                {previewCitation.summary && (
+                                    <div className="mb-4 p-4 bg-muted/50 rounded-lg">
+                                        <h4 className="text-sm font-medium mb-2">Summary</h4>
+                                        <p className="text-sm text-muted-foreground leading-relaxed">
+                                            {previewCitation.summary}
+                                        </p>
+                                    </div>
+                                )}
+                                
+                                {/* Preview iframe for documents */}
+                                <div className="bg-muted/30 rounded-lg overflow-hidden" style={{ height: '500px' }}>
+                                    {previewCitation.url && previewCitation.url.toLowerCase().endsWith('.pdf') ? (
+                                        <iframe
+                                            src={previewCitation.url}
+                                            className="w-full h-full border-0"
+                                            title={previewCitation.title || 'Document preview'}
+                                            onError={(e) => {
+                                                console.error('Failed to load PDF:', e);
+                                            }}
+                                        />
+                                    ) : previewCitation.url && (previewCitation.type === 'image' || /\.(jpg|jpeg|png|gif|webp)$/i.test(previewCitation.url)) ? (
+                                        <div className="w-full h-full flex items-center justify-center p-4">
+                                            <img 
+                                                src={previewCitation.url} 
+                                                alt={previewCitation.title || 'Image'}
+                                                className="max-w-full max-h-full object-contain"
+                                                onError={(e) => {
+                                                    console.error('Failed to load image:', e);
+                                                }}
+                                            />
+                                        </div>
+                                    ) : (
+                                        <div className="w-full h-full flex items-center justify-center">
+                                            <div className="text-center p-8">
+                                                <FileText className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+                                                <p className="text-sm text-muted-foreground mb-4">
+                                                    {previewCitation.url 
+                                                        ? 'Preview not available for this file type'
+                                                        : 'No preview URL available'}
+                                                </p>
+                                                {previewCitation.url && (
+                                                    <Button
+                                                        variant="outline"
+                                                        onClick={() => window.open(previewCitation.url, '_blank')}
+                                                    >
+                                                        <ExternalLink className="w-4 h-4 mr-2" />
+                                                        Open in new tab
+                                                    </Button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </motion.div>
                     </motion.div>
                 )}
             </AnimatePresence>

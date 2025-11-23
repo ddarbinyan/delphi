@@ -10,12 +10,14 @@ try:
     from .meilisearch_client import MeilisearchClient
     from .extractor import process_document
     from .embeddings import generate_embedding
+    from .chat_agent import chat as chat_agent
 except ImportError as e:
     print(f"ImportError caught: {e}")
     from store import DocumentStore, VectorStore, FileStore
     from meilisearch_client import MeilisearchClient
     from extractor import process_document
     from embeddings import generate_embedding
+    from chat_agent import chat as chat_agent
 
 app = FastAPI()
 
@@ -270,6 +272,11 @@ class CreateFolderRequest(BaseModel):
     name: str
     parent_id: Optional[int] = None
 
+class ChatRequest(BaseModel):
+    message: str
+    semantic_ratio: Optional[float] = 0.5
+    limit: Optional[int] = 5
+
 @app.post("/api/v1/folders")
 async def create_folder(request: CreateFolderRequest):
     try:
@@ -399,4 +406,54 @@ async def move_document(doc_id: int, request: MoveDocumentRequest):
     except HTTPException:
         raise
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/chat")
+async def chat_endpoint(request: ChatRequest):
+    """
+    Chat endpoint that uses RAG (Retrieval-Augmented Generation) to answer questions.
+    
+    The agent flow:
+    1. Takes the user's question
+    2. Searches relevant documents using Meilisearch (hybrid semantic + keyword search)
+    3. Generates an answer using the LLM with retrieved context
+    4. Returns the answer with citations to source documents
+    """
+    try:
+        if not request.message or len(request.message.strip()) < 2:
+            raise HTTPException(status_code=400, detail="Message cannot be empty")
+        
+        print(f"Chat request: {request.message}")
+        
+        # Execute the RAG flow using the chat agent
+        result = chat_agent(
+            user_query=request.message,
+            semantic_ratio=request.semantic_ratio,
+            limit=request.limit
+        )
+        
+        # Enhance citations with URLs for the frontend
+        enhanced_citations = []
+        for citation in result.get("citations", []):
+            doc_id = citation["id"]
+            doc = doc_store.get_document(doc_id)
+            if doc:
+                enhanced_citations.append({
+                    "id": doc["id"],
+                    "title": citation["filename"],
+                    "type": citation["type"],
+                    "url": f"http://localhost:8000/uploads/{os.path.basename(doc['path'])}",
+                    "summary": doc.get("summary", "")
+                })
+        
+        return {
+            "answer": result["answer"],
+            "citations": enhanced_citations,
+            "documentsFound": result["documents_found"]
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Chat error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
